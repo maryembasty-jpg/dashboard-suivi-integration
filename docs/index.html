@@ -1,0 +1,181 @@
+import React, { useMemo, useState } from "react";
+
+// ---- Minimal UI primitives (self‑contained) ----
+const Card = ({ children }) => (
+  <div style={{ border: "1px solid #e3e3e3", borderRadius: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", padding: 14, background: "#fff" }}>{children}</div>
+);
+const Row = ({ children, style }) => <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, ...style }}>{children}</div>;
+const Title = ({ children }) => <h3 style={{ margin: 0, fontSize: 16 }}>{children}</h3>;
+const Text = ({ children, small, muted, italic }) => (
+  <div style={{ fontSize: small ? 12 : 14, color: muted ? "#666" : "#222", fontStyle: italic ? "italic" : "normal" }}>{children}</div>
+);
+const Button = ({ children, onClick, kind = "default" }) => (
+  <button onClick={onClick} style={{ padding: "8px 12px", borderRadius: 8, border: kind === "outline" ? "1px solid #bbb" : "1px solid transparent", background: kind === "outline" ? "transparent" : "#1f6feb", color: kind === "outline" ? "#222" : "#fff", cursor: "pointer" }}>{children}</button>
+);
+const Badge = ({ color = "#777", children }) => (
+  <span style={{ background: color, color: "#fff", borderRadius: 999, fontSize: 12, padding: "3px 8px" }}>{children}</span>
+);
+const Progress = ({ value }) => (
+  <div style={{ background: "#eee", height: 8, borderRadius: 999, overflow: "hidden" }}>
+    <div style={{ width: `${Math.max(0, Math.min(100, value))}%`, height: "100%", background: "#10b981" }} />
+  </div>
+);
+
+// ---- Helper utilities ----
+const clampPct = (n) => Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
+
+// Normalisation des statuts (évite les variations "à faire ", casse, espaces)
+const normalizeStatus = (s) => (s || "").normalize("NFC").trim().toLowerCase();
+
+const statusColor = (statusRaw) => {
+  const s = normalizeStatus(statusRaw);
+  switch (s) {
+    case "validé":
+      return "#10b981"; // vert
+    case "en cours":
+      return "#f59e0b"; // orange
+    case "erreur":
+      return "#ef4444"; // rouge
+    case "non connecté":
+      return "#6b7280"; // gris
+    case "à faire":
+    case "a faire":
+      return "#3b82f6"; // bleu
+    default:
+      return "#6b7280"; // par défaut gris
+  }
+};
+
+// Sécurise l'accès au presse-papiers
+async function writeClipboard(text) {
+  if (navigator?.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+  // fallback basique
+  return false;
+}
+
+const INITIAL_DATA = [
+  { source: "ENERGY_SOFET", type: "PV",          api: "API_Odata",   progress: 60, status: "En cours",    date: "17/07/2025", comment: "Intégration incomplète" },
+  { source: "ENEDIS",       type: "Électricité", api: "API_measure", progress: 0,  status: "à faire",       date: "-",         comment: "Collecte échouée — en attente de validation de projet aussi" },
+  { source: "GRDF",         type: "Gaz",         api: "API_addict",  progress: 0,  status: "à faire",       date: "-",         comment: "En attente de validation de projet" },
+  { source: "CLEA",         type: "RCU",         api: "-",           progress: 0,  status: "à faire",      date: "-",         comment: "En attente de validation de projet" },
+  { source: "IDEX",         type: "RCU",         api: "-",           progress: 0,  status: "à faire",      date: "-",         comment: "En attente de validation de projet" },
+  { source: "ERENA",        type: "RCU",         api: "-",           progress: 0,  status: "à faire",      date: "-",         comment: "En attente de validation de projet" },
+  { source: "NOVEA",        type: "RCU",         api: "-",           progress: 0,  status: "à faire",      date: "-",         comment: "En attente de validation de projet" },
+];
+
+export default function App() {
+  const [data, setData] = useState(INITIAL_DATA);
+  const [editMode, setEditMode] = useState(false);
+  const [showJson, setShowJson] = useState(false);
+
+  const onProgressChange = (index, value) => {
+    setData((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], progress: clampPct(value) };
+      return next;
+    });
+  };
+
+  const copyJson = async () => {
+    const text = JSON.stringify(data, null, 2);
+    try {
+      const ok = await writeClipboard(text);
+      if (!ok) throw new Error("Clipboard API indisponible");
+      alert("JSON copié dans le presse‑papiers ✅");
+    } catch (e) {
+      console.error(e);
+      setShowJson(true); // fallback modal pour copier manuellement
+    }
+  };
+
+  const globalProgress = useMemo(() => {
+    if (!data.length) return 0;
+    const sum = data.reduce((acc, it) => acc + clampPct(it.progress), 0);
+    return Math.round(sum / data.length);
+  }, [data]);
+
+  return (
+    <div style={{ padding: 24, maxWidth: 1200, margin: "0 auto", fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto" }}>
+      <Row style={{ marginBottom: 16 }}>
+        <h1 style={{ margin: 0, fontSize: 22 }}>Suivi d'intégration des données</h1>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Button onClick={() => setEditMode((v) => !v)}>{editMode ? "Quitter le mode édition" : "Mode édition"}</Button>
+          <Button kind="outline" onClick={copyJson}>Copier le JSON</Button>
+        </div>
+      </Row>
+
+      <Card>
+        <Row>
+          <Title>Avancement global</Title>
+          <Badge color="#374151">{globalProgress}%</Badge>
+        </Row>
+        <div style={{ marginTop: 8 }}><Progress value={globalProgress} /></div>
+      </Card>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16, marginTop: 16 }}>
+        {data.map((item, idx) => (
+          <Card key={`${item.source}-${idx}`}>
+            <Row>
+              <Title>{item.source}</Title>
+              <Badge color={statusColor(item.status)}>{item.status}</Badge>
+            </Row>
+
+            <Text small muted>Type : {item.type}</Text>
+            <Text small muted>API : {item.api}</Text>
+
+            <div style={{ marginTop: 8 }}>
+              <Progress value={clampPct(item.progress)} />
+              <Text small muted>{clampPct(item.progress)}%</Text>
+            </div>
+
+            {editMode && (
+              <div style={{ marginTop: 8 }}>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={item.progress}
+                  onChange={(e) => onProgressChange(idx, e.target.value)}
+                  style={{ width: "100%" }}
+                />
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={item.progress}
+                    onChange={(e) => onProgressChange(idx, e.target.value)}
+                    style={{ width: 80, padding: 6, borderRadius: 6, border: "1px solid #ddd" }}
+                  />
+                  <span style={{ fontSize: 12, color: "#666" }}>%</span>
+                </div>
+              </div>
+            )}
+
+            <div style={{ marginTop: 8 }}>
+              <Text small muted>Dernière mise à jour : {item.date}</Text>
+              <Text small italic muted>{item.comment}</Text>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Fallback modal pour copier le JSON si le presse-papiers est bloqué */}
+      {showJson && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div style={{ background: "#fff", borderRadius: 12, width: "min(720px, 95vw)", padding: 16 }}>
+            <Row>
+              <Title>Configuration JSON</Title>
+              <Button kind="outline" onClick={() => setShowJson(false)}>Fermer</Button>
+            </Row>
+            <textarea readOnly value={JSON.stringify(data, null, 2)} style={{ marginTop: 10, width: "100%", height: 360, borderRadius: 8, border: "1px solid #ddd", padding: 10, fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" }} />
+            <Text small muted>💡 Sélectionne puis Ctrl/Cmd+C pour copier.</Text>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
